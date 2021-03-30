@@ -1,17 +1,20 @@
 import math
-import sys
-from typing import Dict, List, Set, Tuple
-import numpy as np
-from datetime import datetime
 import multiprocessing
+import sys
+from datetime import datetime
 from multiprocessing.pool import ThreadPool
 
+import numpy as np
+import tensorflow as tf
+
+from agent import Agent
 from client_agent import ClientAgent
 from directory import Directory
-from utils import *
-from agent import Agent
 from message import Message
-import tensorflow as tf
+from utils import *
+
+from typing import Tuple, Dict, List, Set
+
 sys.path.append('..')
 
 def client_computation_caller(inp):
@@ -31,17 +34,21 @@ def client_agent_dropout_caller(inp):
     __ = client_instance.remove_active_clients(message)
     return None
 
-""" Server agent that averages weights and returns them to clients"""
+Dataset = Tuple[np.array, np.array]
+AgentDataset = Dict[int, Dataset]
+Weights = List[np.array]
+
+""" Server agent that averages new_weights and returns them to clients"""
 class ServerAgent(Agent):
 
     def __init__(self, agent_number, model, test_dataset):
         super(ServerAgent, self).__init__(agent_number=agent_number, agent_type='server_agent')
-        self.averaged_weights: Dict[int, List[np.array]] = {}
+        self.averaged_weights: Dict[int, Weights] = {}
         self.model: tf.keras.Model = model
         self.model.compile(optimizer=tf.keras.optimizers.Adam(),
                            loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                            metrics=['accuracy'])
-        self.test_dataset: Tuple[np.array,np.array] = test_dataset
+        self.test_dataset: AgentDataset = test_dataset
 
 
     """
@@ -50,8 +57,8 @@ class ServerAgent(Agent):
         :param active_clients: The set of active clients (client ids)
     """
     def fl_round(self, t, active_clients: Set[int]):
-        # Mapping of client id to their weights
-        weights: Dict[int, List[np.array]] = {}
+        # Mapping of client id to their new_weights
+        weights: Dict[int, Weights] = {}
         directory: Directory = Directory.get_instance()
 
         m = multiprocessing.Manager()
@@ -72,36 +79,38 @@ class ServerAgent(Agent):
                 }
                 arg = Message(sender_name=self.name, recipient_name=client_name, body=body)
                 args.append((client_instance, arg))
-            # For each active client, invoke ClientAgent.produce_weights() and store the returned message containing their updated local weights
+            # For each active client, invoke ClientAgent.produce_weights() and store the returned message containing their updated local new_weights
             messages = calling_pool.map(client_computation_caller, args)
 
+        # The simulated time stored
         server_logic_start = datetime.now()
 
-        vals = {message.sender: message.body['weights'] for message in messages}
+        vals = {message.sender: message.body['new_weights'] for message in messages}
         #The time it takes for the last client - straggler to send the message
         simulated_time = find_slowest_time(messages)
 
-        # Store the local weights and intercepts for each client
+        # Store the local new_weights and intercepts for each client
         for client_name, w in vals.items():
             weights[client_name] = w
 
-        # Aggregate (average) each of the clients weights
+        # Aggregate (average) each of the clients new_weights
         weights_total = weights.values()
         averaged_weights = list(map(lambda x: sum(x) / len(x), zip(*weights_total)))
 
-        # Update the model weights
+        # Update the model new_weights
         self.model.set_weights(averaged_weights)
         #Model.main_model.set_weights(averaged_weights)
 
-        # Set the averaged/federated weights and intercepts for the current timestep
+        # Set the averaged/federated new_weights and intercepts for the current timestep
         self.averaged_weights[t] = averaged_weights
 
-        # Add time server logic takes
+        # The simulated time is the time it takes to receive a response from the last client + time taken to average
+        # the received weights
         server_logic_end = datetime.now()
         server_logic_time = server_logic_end - server_logic_start
         simulated_time += server_logic_time
 
-        # Send a message containing the averaged weights etc. to each active client for this timestep
+        # Send a message containing the averaged new_weights etc. to each active client
         with ThreadPool(len(active_clients)) as returning_pool:
             args = []
             for client_id in active_clients:
@@ -110,6 +119,7 @@ class ServerAgent(Agent):
                 body = {
                     'iteration': t,
                     'averaged_weights': averaged_weights,
+                    # The total simulated time taking into account the delay in sending the message to this client
                     'simulated_time': simulated_time + directory.latency_dict[self.name][client_name]
                 }
                 message = Message(sender_name=self.name, recipient_name=client_name, body=body)
@@ -120,7 +130,7 @@ class ServerAgent(Agent):
     def main(self, num_clients, num_iterations, client_fraction):
         """
         Method invoked to start simulation. Prints out what clients have converged on what iteration.
-        Also prints out accuracy for each client on each iteration (what weights would be if not for the simulation) and federated accuaracy.
+        Also prints out accuracy for each client on each iteration (what new_weights would be if not for the simulation) and federated accuaracy.
         :param client_fraction: The fraction of clients to select per round
         :param num_clients: The number of clients
         :param num_iterations: Number of rounds/iterations to simulate
@@ -129,7 +139,7 @@ class ServerAgent(Agent):
         assert (num_iterations >= 1)
         assert (0 < client_fraction <= 1)
 
-        # The probabilties of selecting each client to participate in a round
+        # The probabilities of selecting each client to participate in a round
         p = np.full(num_clients, 1 / num_clients)
         # The number of clients to sample per round
         num_active_clients = math.ceil(client_fraction * num_clients)

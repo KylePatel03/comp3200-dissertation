@@ -14,7 +14,7 @@ class EdgeAgent(Agent):
     """
      Receives features from client and performs local model training
      :param message: Message received from its client, containing the features learnt
-     :return: Return a message to the client containing the updated weights
+     :return: Return a message to the client containing the updated new_weights
      """
     def receive_weights(self, message: Message) -> Message:
         # Extract message contents
@@ -25,7 +25,7 @@ class EdgeAgent(Agent):
         weights = self.__model.get_weights()
 
         body = {
-            'weights': weights,
+            'new_weights': weights,
             'simulated_time': None
         }
         return_message = Message(sender_name=self.name, recipient_name=message.sender, body=body)

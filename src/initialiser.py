@@ -3,14 +3,13 @@ from client_agent import ClientAgent
 from server_agent import ServerAgent
 from directory import Directory
 from data_formatting import *
-from utils import print_config
 
 import tensorflow as tf
 from tensorflow.keras import Sequential, datasets
 from tensorflow.keras.layers import Flatten, Dense, Conv2D, MaxPooling2D
 
 
-class Initializer:
+class Initialiser:
     def __init__(self,
                  num_clients,
                  client_fraction,
@@ -25,6 +24,7 @@ class Initializer:
         # Add channels dimension
         x_train, x_test = x_train.reshape((x_train.shape[0], 28, 28, 1)), x_test.reshape((x_test.shape[0], 28, 28, 1))
 
+        # Initialise the main FL parameters
         self.num_clients: int = num_clients
         self.client_fraction: float = client_fraction
         self.iterations: int = iterations
@@ -57,7 +57,6 @@ class Initializer:
             edges=self.edges
         )
         print_client_dataset(client_datasets)
-        print_config()
 
     """
         Instantiate a latency-dict - a dictionary that stores the times for exchanging messages between two agents
@@ -103,7 +102,7 @@ class Initializer:
         return model
 
     """
-        Clone the given model structure and weights
+        Clone the given model structure and new_weights
     """
     def __copy_model(self, model: tf.keras.Model) -> tf.keras.Model:
         model_ = tf.keras.Sequential().from_config(model.get_config())
@@ -116,8 +115,15 @@ class Initializer:
     """
     def run_simulation(self,iterations):
         i = self.iterations
-        if iterations >= 1 and iterations <= self.iterations:
+        if 1 <= iterations <= self.iterations:
             i = iterations
         main_server = self.directory.main_server
+        self.__print_config(i)
         main_server.main(num_clients=self.num_clients, num_iterations=i, client_fraction=self.client_fraction)
         # main_server.final_statistics()
+
+    def __print_config(self, iterations):
+        main_msg = 'Running FL simulation with {} clients for {} rounds\n'.format(self.num_clients,iterations)
+        params_msg = 'Hyperparameters...\nFraction of clients selected per round = {}\nLocal Batch Size = {}\nLocal ' \
+                     'Epochs = {}'.format(self.client_fraction, self.batch_size, self.epochs)
+        print(main_msg + params_msg + '\n')

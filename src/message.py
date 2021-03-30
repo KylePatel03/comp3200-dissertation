@@ -12,7 +12,7 @@ class Message:
         """
         self.sender: str = sender_name
         self.recipient: str = recipient_name
-        # Dictionary mapping keys (iteration, weights, simulated_time etc. to their value)
+        # Dictionary mapping keys (iteration, new_weights, simulated_time etc. to their value)
         self.body: Dict[str, Any] = body
 
     def __str__(self):

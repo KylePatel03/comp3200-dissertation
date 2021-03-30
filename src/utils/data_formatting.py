@@ -1,14 +1,18 @@
 import itertools
-from typing import List, Dict, Tuple
-import numpy as np
 import pandas as pd
+import numpy as np
+
+from typing import Tuple, List, Dict
+
+Dataset = Tuple[np.array, np.array]
+AgentDataset = Dict[int, Dataset]
+Weights = List[np.array]
+GroupIndices = Dict[int,np.array]
 
 """
     Construct a pandas DataFrame for the training dataset
 """
-
-
-def construct_df(x_train, y_train):
+def construct_df(x_train: np.array, y_train: np.array) -> Tuple[pd.DataFrame, GroupIndices]:
     if x_train.ndim > 2:
         # Reduce the dimensions to 1
         x_train = x_train.reshape(x_train.shape[0], 28 * 28)
@@ -23,7 +27,7 @@ def construct_df(x_train, y_train):
     Attempt to evenly distribute the number n in a k-dimensional array (to get an IID distribution)
     :returns k-dimensional array such that sum(x)=n
 """
-def distribute_number(n, k):
+def distribute_number(n: int, k: int) -> np.array:
     div, r = divmod(n, k)
     x = np.full(k, div, 'int')
     if r > 0:
@@ -36,7 +40,8 @@ def distribute_number(n, k):
     :param group_indices: Dictionary mapping labels to their corresponding indices in x_train, y_train
     :returns list of tuples that store image and its corresponding label and the updated group_indices
 """
-def partition_data_client(samples, group_indices, x_train, y_train):
+def __partition_data_client(samples: np.array, group_indices: GroupIndices, x_train: np.array, y_train: np.array) -> \
+Tuple[List[Dataset], GroupIndices]:
     # The total number of training datapoints
     num_samples = np.sum(samples)
     client_x_train = np.empty((num_samples, 28, 28, 1))
@@ -57,7 +62,7 @@ def partition_data_client(samples, group_indices, x_train, y_train):
         indices.append(indices_label)
     # Flattened list of indices to sample from
     indices = list(itertools.chain(*indices))
-    #indices = np.concatenate(indices, axis=None).astype('int')
+    # indices = np.concatenate(indices, axis=None).astype('int')
     # Remove the sampled indices from group_indices => each client has unique training dataset
     group_indices: Dict[int, np.array] = {k: np.array(list(set(v) - set(indices))) for k, v in group_indices.items()}
 
@@ -73,11 +78,9 @@ def partition_data_client(samples, group_indices, x_train, y_train):
     The overall training data distribution for each client is approximately IID - NOT for each dataset per round
     :returns List of client dataset - a dictionary mapping iteration [1,iteration] to its dataset
 """
-
-
-def partition_data_iid(x_train, y_train, k, iterations):
+def partition_data_iid(x_train: np.array, y_train: np.array, k: int, iterations: int) -> List[AgentDataset]:
     N = x_train.shape[0]
-    # Each entry i stores the number of training datapoints for client i
+    # Each entry i stores the number of training images for client i
     data_dist = distribute_number(N, k)
     df, group_indices = construct_df(x_train, y_train)
 
@@ -87,39 +90,40 @@ def partition_data_iid(x_train, y_train, k, iterations):
         client_i_data_dict = {}
         # Attempt to get a IID feature-distribution for each client i
         client_i_samples = distribute_number(d_size, 10)
-        client_i_data, group_indices = partition_data_client(client_i_samples, group_indices, x_train, y_train)
+        client_i_data, group_indices = __partition_data_client(client_i_samples, group_indices, x_train, y_train)
 
         # Unzip dataset into list of x_train and y_train
         client_i_x, client_i_y = zip(*client_i_data)
         client_i_x, client_i_y = list(client_i_x), list(client_i_y)
 
-        #Try to split dataset for each iteration
+        # Try to split dataset for each iteration
         client_i_x_split, client_i_y_split = np.array_split(client_i_x, iterations), np.array_split(client_i_y,
                                                                                                     iterations)
-
+        # Update the clients training dataset dictionary
         for t in range(1, iterations + 1):
             x, y = client_i_x_split[t - 1], client_i_y_split[t - 1]
-            #Tuple of x_train and y_train (numpy arrays)
+            # Tuple of x_train and y_train (numpy arrays)
             client_i_data_dict[t] = (x, y)
         client_datasets.append(client_i_data_dict)
-        # # Attempt to evenly split the training data across each iteration => IID in data-distribution
-        # client_i_data_split = np.array_split(client_i_data, iterations)
-        # for t in range(1, iterations + 1):
-        #     client_i_data_dict[t] = client_i_data_split[t - 1]
-        # client_datasets.append(client_i_data_dict)
     return client_datasets
 
-
-def partition_summary(train_dataset):
-    x_train, y_train = zip(*train_dataset)
-    x_train, y_train = np.array(x_train), np.array(y_train)
-    return None
-
-
-def print_client_dataset(client_datasets):
+"""
+    For each client, display information about their dataset for each iteration
+"""
+def print_client_dataset(client_datasets: List[AgentDataset]) -> None:
     for i in range(len(client_datasets)):
         print('Client {}'.format(i))
         data = client_datasets[i]
         for t, d in data.items():
             x, y = d
-            print('Iteration = {}\tShape of x_train & y_train = {} {}'.format(t, x.shape, y.shape))
+            print('Iteration = {}\tNumber of training images = {}'.format(t, x.shape[0]))
+            print(client_dataset_summary(d))
+
+"""
+    Given a dataset for a particular iteration, compute the count of training images for each label
+"""
+def client_dataset_summary(client_dataset: Dataset) -> List[Tuple[np.array, np.array]]:
+    x_train, y_train = client_dataset
+    y_unique, y_counts = np.unique(y_train, return_counts=True)
+    # Label paired with its count
+    return list(zip(y_unique, y_counts))
