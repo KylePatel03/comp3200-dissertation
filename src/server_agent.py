@@ -22,18 +22,6 @@ def client_computation_caller(inp):
     return_message = client_instance.produce_weights(message=message)
     return return_message
 
-
-def client_weights_returner(inp):
-    client_instance, message = inp
-    converged = client_instance.receive_weights(message)
-    return converged
-
-
-def client_agent_dropout_caller(inp):
-    client_instance, message = inp
-    __ = client_instance.remove_active_clients(message)
-    return None
-
 Dataset = Tuple[np.array, np.array]
 AgentDataset = Dict[int, Dataset]
 Weights = List[np.array]
@@ -45,9 +33,6 @@ class ServerAgent(Agent):
         super(ServerAgent, self).__init__(agent_number=agent_number, agent_type='server_agent')
         self.averaged_weights: Dict[int, Weights] = {}
         self.model: tf.keras.Model = model
-        self.model.compile(optimizer=tf.keras.optimizers.Adam(),
-                           loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-                           metrics=['accuracy'])
         self.test_dataset: AgentDataset = test_dataset
 
 
@@ -86,6 +71,7 @@ class ServerAgent(Agent):
         server_logic_start = datetime.now()
 
         vals = {message.sender: message.body['new_weights'] for message in messages}
+
         #The time it takes for the last client - straggler to send the message
         simulated_time = find_slowest_time(messages)
 
@@ -94,15 +80,27 @@ class ServerAgent(Agent):
             weights[client_name] = w
 
         # Aggregate (average) each of the clients new_weights
-        weights_total = weights.values()
-        averaged_weights = list(map(lambda x: sum(x) / len(x), zip(*weights_total)))
+        edge_weights: List[Weights] = list(weights.values())
+        averaged_edge_weights: Weights = list(map(lambda x: sum(x) / len(x), zip(*edge_weights)))
+        num_trainable_weights = len(self.model.trainable_weights)
 
-        # Update the model new_weights
+        # print('Shape of edge weights')
+        # for w in averaged_edge_weights:
+        #     print(w.shape)
+        #
+        # print('Shape of main model weights...')
+        # for w in self.model.weights:
+        #     print(w.name,w.shape)
+
+        averaged_weights = self.model.get_weights()
+        averaged_weights[-num_trainable_weights:] = averaged_edge_weights
+
+        # Update the model's weights with the average weights
         self.model.set_weights(averaged_weights)
-        #Model.main_model.set_weights(averaged_weights)
-
         # Set the averaged/federated new_weights and intercepts for the current timestep
         self.averaged_weights[t] = averaged_weights
+
+        print('Updated weights for round {}'.format(t))
 
         # The simulated time is the time it takes to receive a response from the last client + time taken to average
         # the received weights
@@ -110,22 +108,20 @@ class ServerAgent(Agent):
         server_logic_time = server_logic_end - server_logic_start
         simulated_time += server_logic_time
 
-        # Send a message containing the averaged new_weights etc. to each active client
-        with ThreadPool(len(active_clients)) as returning_pool:
-            args = []
-            for client_id in active_clients:
-                client_instance: ClientAgent = directory.clients[client_id]
-                client_name = client_instance.name
-                body = {
-                    'iteration': t,
-                    'averaged_weights': averaged_weights,
-                    # The total simulated time taking into account the delay in sending the message to this client
-                    'simulated_time': simulated_time + directory.latency_dict[self.name][client_name]
-                }
-                message = Message(sender_name=self.name, recipient_name=client_name, body=body)
-                args.append((client_instance, message))
-            # Invokes the client to receive the message => calls ClientAgent.receive_weights()
-            return_messages = returning_pool.map(client_weights_returner, args)
+        # Create a message to the EdgeServer containing the new averaged weights
+        message = Message(
+            sender_name=self.name,
+            recipient_name=directory.edge.name,
+            body={
+                'iteration': t,
+                # The new averaged weights for the EdgeServer's model
+                'averaged_weights': averaged_edge_weights,
+                # Add the time delay in sending a message to the EdgeServer
+                'simulated_time': simulated_time + directory.latency_dict[self.name][directory.edge.name]
+            }
+        )
+        # Invoke the EdgeServer to receive the message
+        directory.edge.receive_weights(message)
 
     def main(self, num_clients, num_iterations, client_fraction):
         """

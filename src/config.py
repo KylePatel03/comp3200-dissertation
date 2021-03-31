@@ -6,11 +6,11 @@ https://arxiv.org/abs/2002.08423
 """
 
 """Simulation Parameters"""
-NUM_CLIENTS: int = 3
+NUM_CLIENTS: int = 4
 __client_names = ['client_agent' + str(i) for i in range(NUM_CLIENTS)]
 
 CLIENT_FRACTION: float = 0.5
-ITERATIONS: int = 1
+ITERATIONS: int = 3
 EPOCHS: int = 1
 BATCH_SIZE: int = 10
 

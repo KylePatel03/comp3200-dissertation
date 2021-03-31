@@ -11,14 +11,14 @@ class Directory:
         else:
             return Directory.__directory
 
-    def __init__(self, main_server, clients,latency_dict,edges=None):
+    def __init__(self, main_server, clients, latency_dict, edge):
         if Directory.__directory is None:
             # ServerAgent
             self.main_server = main_server
             # Dict[int,ClientAgent]
             self.clients = clients
-            # Dict[int,EdgeAgent]
-            self.edges = edges
+            # EdgeAgent
+            self.edge = edge
             # Dict[str,Dict[str,timedelta]]
             self.latency_dict = latency_dict
             Directory.__directory = self
@@ -27,13 +27,14 @@ class Directory:
 
     @staticmethod
     def get_agent(self, agent_name: str):
-        client_dict = {v.name: v for v in self.clients.values()}
-        edge_dict = {v.name: v for v in self.edges.values()}
-        main_server_dict = {self.main_server.name: self.main_server}
+        if agent_name == self.edge.name:
+            return self.edge
+        elif agent_name == self.main_server.name:
+            return self.main_server
+        else:
+            client_dict = {v.name: v for v in self.clients.values()}
+            return client_dict.get(agent_name)
 
-        temp_dict = dict(client_dict, **edge_dict, **main_server_dict)
-        return temp_dict.get(agent_name)
-
-    @staticmethod
-    def get_edge_agent(self, agent_number: int):
-        return self.edges.get(agent_number)
+    # @staticmethod
+    # def get_edge_agent(self, agent_number: int):
+    #     return self.edge.get(agent_number)

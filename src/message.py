@@ -1,4 +1,5 @@
 from typing import Dict, Any
+from datetime import timedelta
 
 class Message:
     """
@@ -14,6 +15,7 @@ class Message:
         self.recipient: str = recipient_name
         # Dictionary mapping keys (iteration, new_weights, simulated_time etc. to their value)
         self.body: Dict[str, Any] = body
+        self.simulated_time: timedelta = body.get('simulated_time', None)
 
     def __str__(self):
-        return "Message from {self.sender} to {self.recipient}.\n Body is : {self.body} \n \n"
+        return 'Message from {} to {}.\nSimulated time = {}\n \n'.format(self.sender, self.recipient, self.simulated_time)
