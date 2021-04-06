@@ -1,3 +1,5 @@
+import os
+import re
 from datetime import timedelta
 from client_agent import ClientAgent
 from edge_agent import EdgeAgent
@@ -7,7 +9,7 @@ from data_formatting import *
 
 import tensorflow as tf
 from tensorflow.keras import Sequential, datasets
-from tensorflow.keras.layers import Flatten, Dense, Conv2D, MaxPooling2D, InputLayer
+from tensorflow.keras.layers import Flatten, Dense, Conv2D, MaxPooling2D
 
 
 class Initialiser:
@@ -35,11 +37,14 @@ class Initialiser:
         self.batch_size: int = batch_size
         self.accuracy_threshold: float = accuracy_threshold
 
+        # Filepath of the saved convolution layer weights
+        self.filename = 'pretrained-weights'
+
         # Partition the training dataset to each client
         client_datasets = partition_data_iid(x_train, y_train, k=self.num_clients, iterations=self.iterations)
 
         # Build the compiled global model
-        model = self.__build_model()
+        model = self.__build_model(x_train, y_train)
         client_model, edge_model = model.layers[0], model.layers[1]
 
         # Initialise the main parameter server with the global model and validation dataset
@@ -77,7 +82,7 @@ class Initialiser:
         main_server_name, edge_server_name = self.main_server.name, self.edge_server.name
         latency_dict[main_server_name], latency_dict[edge_server_name] = {}, {}
 
-        generator = np.random.default_rng()
+        generator = np.random.default_rng(seed=0)
         # Handle communication from ClientAgent to Agent (and vice versa)
         for client_name in client_names:
             latency_dict.setdefault(client_name,{})
@@ -96,10 +101,10 @@ class Initialiser:
         return latency_dict
 
     """
-        Create and compile the main model and the partitioned client and edge model
+        Build the shared (pretrained) convolution model 
     """
-    def __build_model(self) -> tf.keras.Model:
-        conv_model = Sequential([
+    def __build_conv_model(self) -> tf.keras.Model:
+        model = Sequential([
             Conv2D(filters=32, kernel_size=2, strides=1, padding='same', activation='relu', input_shape=(28, 28, 1)),
             MaxPooling2D(pool_size=2),
             Conv2D(filters=64, kernel_size=2, strides=1, padding='same', activation='relu'),
@@ -108,10 +113,54 @@ class Initialiser:
             MaxPooling2D(pool_size=2),
             Flatten()
         ])
-        # Pretrain the model...
+        return model
+
+    """
+        Pretrain the convolutional model
+        :param train: Whether to perform model training or not - ignored when the model weights have not been saved
+    """
+    def __pretrain_conv_model(self, x_train, y_train, train=False) -> tf.keras.Model:
+        conv_model = self.__build_conv_model()
+        edge_model = Sequential([
+            Dense(10, activation='softmax')
+        ])
+        model = Sequential([
+            conv_model,
+            edge_model
+        ])
+        model.compile(optimizer=tf.keras.optimizers.Adam(),
+                      loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+                      metrics=['accuracy'])
+
+        r = re.compile(self.filename)
+        # Check if the model has been previously fit and has its weights stored in a file
+        weights_saved = any(r.match(file) for file in os.listdir())
+
+        # Pretrain the conv model if required
+        if train or not weights_saved:
+            print('Pretraining Conv Model...')
+
+            # Training on digits [0,5)
+            indices = np.where(y_train < 5)[0]
+            x_train_lt5, y_train_lt5 = x_train[indices], y_train[indices]
+
+            model.fit(x_train_lt5, y_train_lt5, batch_size=32, epochs=1, verbose=0)
+            # Save the weights of the convolution layers to self.filename
+            conv_model.save_weights(self.filename, save_format=None, overwrite=True)
+        else:
+            # Load the pretrained weights
+            conv_model.load_weights(self.filename)
+        # Freeze the model during training
         conv_model.trainable = False
+        return conv_model
+
+
+    """
+        Create and compile the main model
+    """
+    def __build_model(self, x_train, y_train) -> tf.keras.Model:
+        conv_model = self.__pretrain_conv_model(x_train, y_train)
         dense_model = Sequential([
-            InputLayer(input_shape=(conv_model.output_shape[1],)),
             Dense(20, activation='relu'),
             Dense(10, activation='softmax')
         ])
@@ -120,10 +169,7 @@ class Initialiser:
             dense_model
         ])
 
-        # Compile each model
-        conv_model.compile(optimizer=tf.keras.optimizers.Adam(),
-                           loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-                           metrics=['accuracy'])
+        # Compile the edge-side model and main model
         dense_model.compile(optimizer=tf.keras.optimizers.Adam(),
                             loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                             metrics=['accuracy'])
