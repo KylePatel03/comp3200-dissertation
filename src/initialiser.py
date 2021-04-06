@@ -16,8 +16,10 @@ class Initialiser:
                  client_fraction,
                  iterations,
                  epochs,
-                 batch_size
+                 batch_size,
+                 accuracy_threshold
                  ):
+
         # Load MNIST dataset
         (x_train, y_train), (x_test, y_test) = datasets.mnist.load_data(path=r'C:\Users\KyleP\Desktop\project\mnist')
         # Normalise values from [0,255] -> [0,1]
@@ -31,11 +33,12 @@ class Initialiser:
         self.iterations: int = iterations
         self.epochs: int = epochs
         self.batch_size: int = batch_size
+        self.accuracy_threshold: float = accuracy_threshold
 
         # Partition the training dataset to each client
         client_datasets = partition_data_iid(x_train, y_train, k=self.num_clients, iterations=self.iterations)
 
-        # Build the compiled global model and initialise main server
+        # Build the compiled global model
         model = self.__build_model()
         client_model, edge_model = model.layers[0], model.layers[1]
 
@@ -62,63 +65,32 @@ class Initialiser:
             latency_dict=latency_dict,
             edge=self.edge_server
         )
-
-        # print('Main Model...')
-        # for layer in model.layers:
-        #     print(layer.name)
-        #     print('Input = {}'.format(layer.input))
-        #     print('Output = {}'.format(layer.output))
-        #     print()
-        #
-        # print('Client Model...')
-        # print(client_model.output,client_model.output_shape)
-
-        # N = 100
-        # x,y = x_train[:N], y_train[:N]
-        # batch_size = self.batch_size
-        #
-        # print('Shapes of training dataset = {} {}'.format(x.shape, y.shape))
-        #
-        # feature_output = client_model.predict(x,batch_size=batch_size)
-        # classification_output = edge_model(feature_output)
-        #
-        # edge_model.fit(feature_output,y, batch_size=batch_size)
-
-        #print_client_dataset(client_datasets)
+        # self.__print_latency_dict(latency_dict)
+        # print_client_dataset(client_datasets)
 
     """
         Instantiate a latency-dict - a dictionary that stores the times for exchanging messages between two agents
+        There is no account for Client->Client latency since they do not communicate directly amongst each other
     """
     def __init_latency_dict(self, client_names) -> Dict[str, Dict[str, timedelta]]:
         latency_dict = {}
-        main_server_name = self.main_server.name
-        edge_server_name = self.edge_server.name
-        latency_dict[main_server_name] = {}
-        latency_dict[edge_server_name] = {}
+        main_server_name, edge_server_name = self.main_server.name, self.edge_server.name
+        latency_dict[main_server_name], latency_dict[edge_server_name] = {}, {}
 
-        #Handle communication from ClientAgent to Agent (and vice versa)
+        generator = np.random.default_rng()
+        # Handle communication from ClientAgent to Agent (and vice versa)
         for client_name in client_names:
-            # Client -> Client
-            latency_dict[client_name] = {
-                client_name2: (timedelta(seconds=0) if client_name == client_name2 else timedelta(seconds=1))
-                for client_name2 in client_names
-            }
-            # Client -> MainServer
-            latency_dict[client_name][main_server_name] = timedelta(seconds=3)
+            latency_dict.setdefault(client_name,{})
+            # Client -> MainServer & vice versa
+            latency_dict[client_name][main_server_name] = timedelta(seconds=generator.normal(loc=5.0, scale=2.0))
+            latency_dict[main_server_name][client_name] = latency_dict[client_name][main_server_name]
 
-            # Client -> EdgeServer
-            latency_dict[client_name][edge_server_name] = timedelta(seconds=0.8)
+            # Client -> EdgeServer & vice versa
+            latency_dict[client_name][edge_server_name] = timedelta(seconds=generator.normal(loc=2.1, scale=1.0))
+            latency_dict[edge_server_name][client_name] = latency_dict[client_name][edge_server_name]
 
-            # EdgeServer -> Client
-            latency_dict[edge_server_name][client_name] = timedelta(seconds=0.8)
-
-            # MainServer -> Client
-            latency_dict[main_server_name][client_name] = timedelta(seconds=3)
-
-        #MainServer -> EdgeServer
-        latency_dict[main_server_name][edge_server_name] = timedelta(seconds=1)
-
-        #EdgeServer -> MainServer
+        # MainServer -> EdgeServer & vice versa
+        latency_dict[main_server_name][edge_server_name] = timedelta(seconds=2.04)
         latency_dict[edge_server_name][main_server_name] = latency_dict[main_server_name][edge_server_name]
 
         return latency_dict
@@ -153,8 +125,8 @@ class Initialiser:
                            loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                            metrics=['accuracy'])
         dense_model.compile(optimizer=tf.keras.optimizers.Adam(),
-                           loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-                           metrics=['accuracy'])
+                            loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+                            metrics=['accuracy'])
         model.compile(optimizer=tf.keras.optimizers.Adam(),
                       loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'])
@@ -163,17 +135,44 @@ class Initialiser:
     """
         Run FL on the main server 
     """
-    def run_simulation(self,iterations):
+    def run_simulation(self, iterations):
         i = self.iterations
         if 1 <= iterations <= self.iterations:
             i = iterations
-        main_server = self.directory.main_server
+        main_server: ServerAgent = self.directory.main_server
         self.__print_config(i)
-        main_server.main(num_clients=self.num_clients, num_iterations=i, client_fraction=self.client_fraction)
+        main_server.main(
+            num_clients=self.num_clients,
+            num_iterations=i,
+            client_fraction=self.client_fraction,
+            accuracy_threshold=self.accuracy_threshold
+        )
         # main_server.final_statistics()
 
+    def __print_latency_dict(self, latency_dict):
+        main_server_name = self.main_server.name
+        edge_server_name = self.edge_server.name
+
+        print('Main Server...')
+        for k, v in latency_dict[main_server_name].items():
+            print('{} \t {}'.format(k, v))
+        print()
+
+        print('Edge Server...')
+        for k, v in latency_dict[edge_server_name].items():
+            print('{} \t {}'.format(k, v))
+        print()
+
+        clients_dict = {
+            k: v for k, v in latency_dict.items()
+            if k not in {main_server_name, edge_server_name}
+        }
+        print('Clients...')
+        for k,v in clients_dict.items():
+            print('{} \t {}'.format(k,v))
+
     def __print_config(self, iterations):
-        main_msg = 'Running FL simulation with {} clients for {} rounds\n'.format(self.num_clients,iterations)
+        main_msg = 'Running FL simulation with {} clients for {} rounds\n'.format(self.num_clients, iterations)
         params_msg = 'Hyperparameters...\nFraction of clients selected per round = {}\nLocal Batch Size = {}\nLocal ' \
                      'Epochs = {}'.format(self.client_fraction, self.batch_size, self.epochs)
         print(main_msg + params_msg + '\n')

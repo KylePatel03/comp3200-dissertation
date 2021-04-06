@@ -1,7 +1,7 @@
 import math
 import multiprocessing
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from multiprocessing.pool import ThreadPool
 
 import numpy as np
@@ -17,16 +17,13 @@ from typing import Tuple, Dict, List, Set
 
 sys.path.append('..')
 
-def client_computation_caller(inp):
-    client_instance, message = inp
-    return_message = client_instance.produce_weights(message=message)
-    return return_message
-
 Dataset = Tuple[np.array, np.array]
 AgentDataset = Dict[int, Dataset]
 Weights = List[np.array]
 
 """ Server agent that averages new_weights and returns them to clients"""
+
+
 class ServerAgent(Agent):
 
     def __init__(self, agent_number, model, test_dataset):
@@ -35,19 +32,19 @@ class ServerAgent(Agent):
         self.model: tf.keras.Model = model
         self.test_dataset: AgentDataset = test_dataset
 
-
     """
         Execute the t (th) round of FL
         :param t The FL round in range [1..T]
         :param active_clients: The set of active clients (client ids)
     """
-    def fl_round(self, t, active_clients: Set[int]):
+
+    def __fl_round(self, t, active_clients: Set[int]):
+        server_logic_start = datetime.now()
         # Mapping of client id to their new_weights
         weights: Dict[int, Weights] = {}
         directory: Directory = Directory.get_instance()
 
         m = multiprocessing.Manager()
-        lock = m.Lock()
         # Send a message to each active client and invoke them to begin local model training
         with ThreadPool(len(active_clients)) as calling_pool:
             args = []
@@ -56,41 +53,32 @@ class ServerAgent(Agent):
                 client_instance: ClientAgent = directory.clients[client_id]
                 client_name = client_instance.name
 
-                body = {
-                    'iteration': t,
-                    'lock': lock,
-                    # The simulated time it takes to send the message
-                    'simulated_time': directory.latency_dict[self.name][client_name]
-                }
-                arg = Message(sender_name=self.name, recipient_name=client_name, body=body)
+                arg = Message(
+                    sender_name=self.name,
+                    recipient_name=client_name,
+                    iteration=t,
+                    simulated_time=directory.latency_dict[self.name][client_name],
+                    body={}
+                )
                 args.append((client_instance, arg))
-            # For each active client, invoke ClientAgent.produce_weights() and store the returned message containing their updated local new_weights
-            messages = calling_pool.map(client_computation_caller, args)
+            # Invoke ClientAgent.produce_weights() and store their returned message containing weight updates
+            messages = calling_pool.map(lambda x: x[0].produce_weights(message=x[1]), args)
 
-        # The simulated time stored
-        server_logic_start = datetime.now()
+        # The time it takes for ALL clients to do model training and send their weights
+        # This is identical to the simulated time for the LAST client to execute model training
+        receive_weights_time = find_slowest_time(messages)
 
-        vals = {message.sender: message.body['new_weights'] for message in messages}
+        print('{}: Received all of the selected clients weights at time {}'.format(self.name, receive_weights_time))
 
-        #The time it takes for the last client - straggler to send the message
-        simulated_time = find_slowest_time(messages)
+        # The edge weights weighted by the number of training datapoints
+        edge_weights_nk = [map(lambda x: message.body['num_data'] * x, message.body['new_weights'])
+                           for message in messages]
+        # The total number of training datapoints
+        nk_sum = sum([message.body['num_data'] for message in messages])
 
-        # Store the local new_weights and intercepts for each client
-        for client_name, w in vals.items():
-            weights[client_name] = w
-
-        # Aggregate (average) each of the clients new_weights
-        edge_weights: List[Weights] = list(weights.values())
-        averaged_edge_weights: Weights = list(map(lambda x: sum(x) / len(x), zip(*edge_weights)))
+        # Aggregate (average) each of the clients new_weights, weighted by the number of local training datapoints
+        averaged_edge_weights: Weights = list(map(lambda x: sum(x) / nk_sum, zip(*edge_weights_nk)))
         num_trainable_weights = len(self.model.trainable_weights)
-
-        # print('Shape of edge weights')
-        # for w in averaged_edge_weights:
-        #     print(w.shape)
-        #
-        # print('Shape of main model weights...')
-        # for w in self.model.weights:
-        #     print(w.name,w.shape)
 
         averaged_weights = self.model.get_weights()
         averaged_weights[-num_trainable_weights:] = averaged_edge_weights
@@ -100,37 +88,32 @@ class ServerAgent(Agent):
         # Set the averaged/federated new_weights and intercepts for the current timestep
         self.averaged_weights[t] = averaged_weights
 
-        print('Updated weights for round {}'.format(t))
-
-        # The simulated time is the time it takes to receive a response from the last client + time taken to average
-        # the received weights
         server_logic_end = datetime.now()
         server_logic_time = server_logic_end - server_logic_start
-        simulated_time += server_logic_time
+        # The total time taken to request for weights, perform aggregation and send averaged weights to EdgeServer
+        simulated_time = receive_weights_time + server_logic_time + directory.latency_dict[self.name][directory.edge.name]
 
-        # Create a message to the EdgeServer containing the new averaged weights
+        print('{}: Simulated time to send EdgeServer the federated weights = {}'.format(self.name, simulated_time))
+
         message = Message(
             sender_name=self.name,
             recipient_name=directory.edge.name,
+            iteration=t,
+            simulated_time=simulated_time,
             body={
-                'iteration': t,
-                # The new averaged weights for the EdgeServer's model
                 'averaged_weights': averaged_edge_weights,
-                # Add the time delay in sending a message to the EdgeServer
-                'simulated_time': simulated_time + directory.latency_dict[self.name][directory.edge.name]
             }
         )
-        # Invoke the EdgeServer to receive the message
-        directory.edge.receive_weights(message)
+        # Invoke the EdgeServer to receive the message and receive an acknowledgement
+        return_msg: Message = directory.edge.receive_weights(message)
+        print('{}: Simulated time = {}'.format(self.name, return_msg.simulated_time))
 
-    def main(self, num_clients, num_iterations, client_fraction):
-        """
-        Method invoked to start simulation. Prints out what clients have converged on what iteration.
-        Also prints out accuracy for each client on each iteration (what new_weights would be if not for the simulation) and federated accuaracy.
-        :param client_fraction: The fraction of clients to select per round
-        :param num_clients: The number of clients
-        :param num_iterations: Number of rounds/iterations to simulate
-        """
+    """
+        Run FL simulation, selecting a fraction of clients per round
+        The simulation terminates when the number of iterations/model accuracy reaches a specified value
+    """
+
+    def main(self, num_clients, num_iterations, client_fraction, accuracy_threshold):
         assert (num_clients >= 1)
         assert (num_iterations >= 1)
         assert (0 < client_fraction <= 1)
@@ -141,15 +124,24 @@ class ServerAgent(Agent):
         num_active_clients = math.ceil(client_fraction * num_clients)
         print('Selecting {}/{} clients per FL round'.format(num_active_clients, num_clients))
 
-        # Execute num_iterations rounds of FL
         for t in range(1, num_iterations + 1):
-            # Randomly select k clients
+            # Subset of clients to participate in FL round
             active_clients = set(np.random.choice(a=num_clients, size=num_active_clients, replace=False, p=p))
             print('FL Round {}\nSelected clients {} to participate'.format(t, active_clients))
-            self.fl_round(t, active_clients)
-            print('Evaluating model performance at round {}\n{}'.format(t,self.evaluate_model()))
-            self.evaluate_model()
-        print('Finished FL simulation')
+            self.__fl_round(t, active_clients)
+            print('Evaluating model performance...')
+            loss, accuracy = self.evaluate_model()
+            print('Model loss & accuracy = {} {}%'.format(loss, 100 * accuracy))
+            if accuracy >= accuracy_threshold:
+                print('Accuracy threshold of {} has been achieved! Ending simulation at round {}'.
+                      format(accuracy_threshold, t))
+                break
+            print()
+        print('Finished FL simulation ')
+
+    """
+        Return loss and accuracy of model on testing dataset
+    """
 
     def evaluate_model(self):
         x_test, y_test = self.test_dataset

@@ -14,7 +14,8 @@ if __name__ == '__main__':
         client_fraction=config.CLIENT_FRACTION,
         iterations=config.ITERATIONS,
         epochs=config.EPOCHS,
-        batch_size=config.BATCH_SIZE
+        batch_size=config.BATCH_SIZE,
+        accuracy_threshold=config.ACCURACY_THRESHOLD
     )
     a = datetime.datetime.now()
     initialiser.run_simulation(iterations=config.ITERATIONS)

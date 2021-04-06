@@ -9,9 +9,10 @@ https://arxiv.org/abs/2002.08423
 NUM_CLIENTS: int = 4
 __client_names = ['client_agent' + str(i) for i in range(NUM_CLIENTS)]
 
-CLIENT_FRACTION: float = 0.5
-ITERATIONS: int = 3
-EPOCHS: int = 1
+ACCURACY_THRESHOLD = 0.75
+CLIENT_FRACTION: float = 0.4
+ITERATIONS: int = 2
+EPOCHS: int = 2
 BATCH_SIZE: int = 10
 
 VERBOSITY: bool = True

@@ -34,7 +34,3 @@ class Directory:
         else:
             client_dict = {v.name: v for v in self.clients.values()}
             return client_dict.get(agent_name)
-
-    # @staticmethod
-    # def get_edge_agent(self, agent_number: int):
-    #     return self.edge.get(agent_number)
