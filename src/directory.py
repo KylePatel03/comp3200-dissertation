@@ -11,7 +11,7 @@ class Directory:
         else:
             return Directory.__directory
 
-    def __init__(self, main_server, clients, latency_dict, edge):
+    def __init__(self, main_server, clients, latency_dict, edge=None):
         if Directory.__directory is None:
             # ServerAgent
             self.main_server = main_server

@@ -2,7 +2,7 @@ import datetime
 import random
 
 import config
-from data_formatting import *
+from data_partition import *
 from initialiser import Initialiser
 
 if __name__ == '__main__':
@@ -15,7 +15,8 @@ if __name__ == '__main__':
         iterations=config.ITERATIONS,
         epochs=config.EPOCHS,
         batch_size=config.BATCH_SIZE,
-        accuracy_threshold=config.ACCURACY_THRESHOLD
+        accuracy_threshold=config.ACCURACY_THRESHOLD,
+        system=Initialiser.EDGE,
     )
     a = datetime.datetime.now()
     initialiser.run_simulation(iterations=config.ITERATIONS)

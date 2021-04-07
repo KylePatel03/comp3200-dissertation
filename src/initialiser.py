@@ -1,25 +1,36 @@
 import os
 import re
+from abc import ABC
 from datetime import timedelta
 from client_agent import ClientAgent
+from client_agent_edge import ClientAgentEdge
+from client_agent_vanilla import ClientAgentVanilla
 from edge_agent import EdgeAgent
 from server_agent import ServerAgent
 from directory import Directory
-from data_formatting import *
+from data_partition import *
 
 import tensorflow as tf
 from tensorflow.keras import Sequential, datasets
 from tensorflow.keras.layers import Flatten, Dense, Conv2D, MaxPooling2D
 
+from server_agent_edge import ServerAgentEdge
+from server_agent_vanilla import ServerAgentVanilla
 
-class Initialiser:
+
+class Initialiser():
+    EDGE: str = 'edge'
+    VANILLA: str = 'vanilla'
+
+
     def __init__(self,
                  num_clients,
                  client_fraction,
                  iterations,
                  epochs,
                  batch_size,
-                 accuracy_threshold
+                 accuracy_threshold,
+                 system=EDGE
                  ):
 
         # Load MNIST dataset
@@ -37,41 +48,65 @@ class Initialiser:
         self.batch_size: int = batch_size
         self.accuracy_threshold: float = accuracy_threshold
 
-        # Filepath of the saved convolution layer weights
-        self.filename = 'pretrained-weights'
+        self.filename = None
+        self.edge_server = None
 
         # Partition the training dataset to each client
         client_datasets = partition_data_iid(x_train, y_train, k=self.num_clients, iterations=self.iterations)
 
-        # Build the compiled global model
-        model = self.__build_model(x_train, y_train)
-        client_model, edge_model = model.layers[0], model.layers[1]
+        if system == Initialiser.EDGE:
+            # Filepath of the saved convolution layer weights
+            self.filename = 'pretrained-weights'
 
-        # Initialise the main parameter server with the global model and validation dataset
-        self.main_server: ServerAgent = ServerAgent(0, model, (x_test, y_test))
+            # Build the compiled global model
+            model = self.__build_model_edge(x_train, y_train)
+            client_model, edge_model = model.layers[0], model.layers[1]
 
-        # Initialise the edge server with its model
-        self.edge_server: EdgeAgent = \
-            EdgeAgent(0, edge_model, num_active_clients=self.num_clients,
-                      epochs=self.epochs, batch_size=self.batch_size)
+            # Initialise the main parameter server with the global model and validation dataset
+            self.main_server: ServerAgent = ServerAgentEdge(0, model, (x_test, y_test))
 
-        # Initialise the clients with their dataset and compiled (pre-trained) model
-        self.clients = {
-            i: ClientAgent(i, client_datasets[i], client_model)
-            for i in range(num_clients)
-        }
-        client_names = list(map(lambda x: x.name, self.clients.values()))
-        latency_dict = self.__init_latency_dict(client_names)
+            # Initialise the edge server with its model
+            self.edge_server: EdgeAgent = \
+                EdgeAgent(0, edge_model, num_active_clients=self.num_clients,
+                          epochs=self.epochs, batch_size=self.batch_size)
 
-        # Initialise Directory
-        self.directory: Directory = Directory(
-            main_server=self.main_server,
-            clients=self.clients,
-            latency_dict=latency_dict,
-            edge=self.edge_server
-        )
-        # self.__print_latency_dict(latency_dict)
-        # print_client_dataset(client_datasets)
+            # Initialise the clients with their dataset and compiled (pre-trained) model
+            self.clients = {
+                i: ClientAgentEdge(i, client_datasets[i], client_model)
+                for i in range(num_clients)
+            }
+            client_names = list(map(lambda x: x.name, self.clients.values()))
+            latency_dict = self.__init_latency_dict(client_names)
+
+            # Initialise Directory
+            self.directory: Directory = Directory(
+                main_server=self.main_server,
+                clients=self.clients,
+                latency_dict=latency_dict,
+                edge=self.edge_server
+            )
+
+        else:
+            model = self.__build_model()
+
+            # Initialise the main parameter server with the global model and validation dataset
+            self.main_server: ServerAgent = ServerAgentVanilla(0, model, (x_test, y_test))
+
+            # Initialise the clients each with a local model
+            self.clients = {
+                i: ClientAgentVanilla(i, client_datasets[i], self.__copy_model(model))
+                for i in range(num_clients)
+            }
+            client_names = list(map(lambda x: x.name, self.clients.values()))
+            latency_dict = self.__init_latency_dict(client_names)
+
+            # Initialise Directory
+            self.directory: Directory = Directory(
+                main_server=self.main_server,
+                clients=self.clients,
+                latency_dict=latency_dict,
+                edge=self.edge_server
+            )
 
     """
         Instantiate a latency-dict - a dictionary that stores the times for exchanging messages between two agents
@@ -79,24 +114,32 @@ class Initialiser:
     """
     def __init_latency_dict(self, client_names) -> Dict[str, Dict[str, timedelta]]:
         latency_dict = {}
-        main_server_name, edge_server_name = self.main_server.name, self.edge_server.name
-        latency_dict[main_server_name], latency_dict[edge_server_name] = {}, {}
+        main_server_name = self.main_server.name
+        latency_dict.setdefault(main_server_name, {})
+        if self.edge_server is not None:
+            latency_dict.setdefault(self.edge_server.name,{})
 
         generator = np.random.default_rng(seed=0)
-        # Handle communication from ClientAgent to Agent (and vice versa)
+        # Handle communication between ClientAgent & Agents
         for client_name in client_names:
-            latency_dict.setdefault(client_name,{})
-            # Client -> MainServer & vice versa
+            latency_dict.setdefault(client_name, {})
+
+            # Handle communication between ClientAgent & ServerAgent
             latency_dict[client_name][main_server_name] = timedelta(seconds=generator.normal(loc=5.0, scale=2.0))
             latency_dict[main_server_name][client_name] = latency_dict[client_name][main_server_name]
 
-            # Client -> EdgeServer & vice versa
-            latency_dict[client_name][edge_server_name] = timedelta(seconds=generator.normal(loc=2.1, scale=1.0))
-            latency_dict[edge_server_name][client_name] = latency_dict[client_name][edge_server_name]
+            # Handle communication between ClientAgent & EdgeServer
+            if self.edge_server is not None:
+                edge_server_name = self.edge_server.name
+                latency_dict[client_name][edge_server_name] = timedelta(seconds=generator.normal(loc=2.1, scale=1.0))
+                latency_dict[edge_server_name][client_name] = latency_dict[client_name][edge_server_name]
 
-        # MainServer -> EdgeServer & vice versa
-        latency_dict[main_server_name][edge_server_name] = timedelta(seconds=2.04)
-        latency_dict[edge_server_name][main_server_name] = latency_dict[main_server_name][edge_server_name]
+        # Handle communication between ServerAgent & EdgeServer
+        if self.edge_server is not None:
+            edge_server_name = self.edge_server.name
+            # MainServer -> EdgeServer & vice versa
+            latency_dict[main_server_name][edge_server_name] = timedelta(seconds=2.04)
+            latency_dict[edge_server_name][main_server_name] = latency_dict[main_server_name][edge_server_name]
 
         return latency_dict
 
@@ -114,6 +157,17 @@ class Initialiser:
             Flatten()
         ])
         return model
+
+    """
+        Build the shared fully connected (dense) layers used for classification
+    """
+    def __build_edge_model(self) -> tf.keras.Model:
+        model = Sequential([
+            Dense(32, activation='relu'),
+            Dense(10, activation='softmax')
+        ])
+        return model
+
 
     """
         Pretrain the convolutional model
@@ -156,14 +210,26 @@ class Initialiser:
 
 
     """
-        Create and compile the main model
+        Create and compile the global model (vanilla system)
     """
-    def __build_model(self, x_train, y_train) -> tf.keras.Model:
-        conv_model = self.__pretrain_conv_model(x_train, y_train)
-        dense_model = Sequential([
-            Dense(20, activation='relu'),
-            Dense(10, activation='softmax')
+    def __build_model(self) -> tf.keras.Model:
+        conv_model = self.__build_conv_model()
+        edge_model = self.__build_edge_model()
+        model = Sequential([
+            conv_model,
+            edge_model
         ])
+        model.compile(optimizer=tf.keras.optimizers.Adam(),
+                      loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+                      metrics=['accuracy'])
+        return model
+
+    """
+        Create and compile the global model (edge-based system)
+    """
+    def __build_model_edge(self, x_train, y_train) -> tf.keras.Model:
+        conv_model = self.__pretrain_conv_model(x_train, y_train)
+        dense_model = self.__build_edge_model()
         model = Sequential([
             conv_model,
             dense_model
@@ -177,6 +243,17 @@ class Initialiser:
                       loss=tf.keras.losses.SparseCategoricalCrossentropy(),
                       metrics=['accuracy'])
         return model
+
+    """
+        Return a clone the given model architecture and its weights
+    """
+    def __copy_model(self, model: tf.keras.Model) -> tf.keras.Model:
+        # Clone the model architecture
+        model_copy = tf.keras.Sequential().from_config(model.get_config())
+        # Copy the weights
+        model_copy.set_weights(model.get_weights())
+        return model_copy
+
 
     """
         Run FL on the main server 
