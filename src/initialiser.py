@@ -41,12 +41,13 @@ class Initialiser():
         x_train, x_test = x_train.reshape((x_train.shape[0], 28, 28, 1)), x_test.reshape((x_test.shape[0], 28, 28, 1))
 
         # Initialise the main FL parameters
+        self.iterations: int = iterations
         self.num_clients: int = num_clients
         self.client_fraction: float = client_fraction
-        self.iterations: int = iterations
+        self.accuracy_threshold: float = accuracy_threshold
+
         self.epochs: int = epochs
         self.batch_size: int = batch_size
-        self.accuracy_threshold: float = accuracy_threshold
 
         self.filename = None
         self.edge_server = None
@@ -92,7 +93,11 @@ class Initialiser():
             # Initialise the main parameter server with the global model and validation dataset
             self.main_server: ServerAgent = ServerAgentVanilla(0, model, (x_test, y_test))
 
-            # Initialise the clients each with a local model
+            # Initialise the batch_size and epochs for all clients
+            ClientAgentVanilla.batch_size = self.batch_size
+            ClientAgentVanilla.epochs = self.epochs
+
+            # Initialise the clients with training dataset and a local model copy
             self.clients = {
                 i: ClientAgentVanilla(i, client_datasets[i], self.__copy_model(model))
                 for i in range(num_clients)
@@ -198,7 +203,7 @@ class Initialiser():
             indices = np.where(y_train < 5)[0]
             x_train_lt5, y_train_lt5 = x_train[indices], y_train[indices]
 
-            model.fit(x_train_lt5, y_train_lt5, batch_size=32, epochs=1, verbose=0)
+            model.fit(x_train_lt5, y_train_lt5, batch_size=self.batch_size, epochs=self.epochs, verbose=0)
             # Save the weights of the convolution layers to self.filename
             conv_model.save_weights(self.filename, save_format=None, overwrite=True)
         else:
@@ -252,6 +257,9 @@ class Initialiser():
         model_copy = tf.keras.Sequential().from_config(model.get_config())
         # Copy the weights
         model_copy.set_weights(model.get_weights())
+        # model_copy.compile(optimizer=tf.keras.optimizers.Adam(),
+        #                    loss=tf.keras.losses.SparseCategoricalCrossentropy(),
+        #                    metrics=['accuracy'])
         return model_copy
 
 

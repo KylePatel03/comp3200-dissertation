@@ -1,12 +1,20 @@
-import math
-import sys
 from abc import abstractmethod, ABC
 from typing import Tuple, Dict, List, Set
 
+import math
+import sys
 import numpy as np
 import tensorflow as tf
 
-from agent import Agent
+from datetime import datetime
+import multiprocessing
+from multiprocessing.pool import ThreadPool
+
+from client_agent import ClientAgent
+from directory import Directory
+from message import Message
+
+from agent import Agent, find_slowest_time
 
 sys.path.append('..')
 
@@ -23,8 +31,12 @@ class ServerAgent(Agent, ABC):
         self.model: tf.keras.Model = model
         self.test_dataset: AgentDataset = test_dataset
 
+    """
+        The logic to simulate the t(th) FL round
+        active_clients: Collection of participating clients by their id
+    """
     @abstractmethod
-    def fl_round(self, t: int, active_clients: Set[int]):
+    def fl_round(self, t, active_clients):
         pass
 
     """
@@ -35,18 +47,23 @@ class ServerAgent(Agent, ABC):
         assert (num_clients >= 1)
         assert (num_iterations >= 1)
         assert (0 < client_fraction <= 1)
+        assert (0 < accuracy_threshold <= 1)
 
         # The probabilities of selecting each client to participate in a round
         p = np.full(num_clients, 1 / num_clients)
         # The number of clients to sample per round
         num_active_clients = math.ceil(client_fraction * num_clients)
-        print('Selecting {}/{} clients per FL round'.format(num_active_clients, num_clients))
 
-        for t in range(1, num_iterations + 1):
-            # Subset of clients to participate in FL round
-            active_clients = set(np.random.choice(a=num_clients, size=num_active_clients, replace=False, p=p))
-            print('FL Round {}\nSelected clients {} to participate'.format(t, active_clients))
-            self.fl_round(t, active_clients)
+        # Each row contains the ids of the clients to participate in a particular FL round
+        rng = np.random.default_rng(seed=0)  # Seed for reproducibility
+        active_clients = np.array([rng.choice(a=num_clients, size=num_active_clients, replace=False, p=p)
+                                   for _ in range(num_iterations)])
+
+        print('Selecting {}/{} clients per FL round'.format(num_active_clients, num_clients))
+        for i, clients in enumerate(active_clients):
+            t = i + 1
+            print('FL Round {}\nSelected clients {} to participate'.format(t, clients))
+            self.fl_round(t, clients)
             print('Evaluating model performance...')
             loss, accuracy = self.evaluate_model()
             print('Model loss & accuracy = {} {}%'.format(loss, 100 * accuracy))

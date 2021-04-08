@@ -32,16 +32,14 @@ class ClientAgentEdge(ClientAgent):
         self.computation_times[message.iteration] = computation_time
         simulated_time += computation_time + directory.latency_dict[self.name][edge_server.name]
 
-        body = {
-            'features': features,
-            'labels': y_train,
-        }
-
         msg = Message(sender_name=self.name,
                       recipient_name=edge_server.name,
                       iteration=message.iteration,
                       simulated_time=simulated_time,
-                      body=body
+                      body={
+                          'features': features,
+                          'labels': y_train,
+                      }
                       )
         edge_server.receive_message(msg)
         return edge_server.produce_weights()

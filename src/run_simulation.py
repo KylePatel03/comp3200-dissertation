@@ -16,8 +16,8 @@ if __name__ == '__main__':
         epochs=config.EPOCHS,
         batch_size=config.BATCH_SIZE,
         accuracy_threshold=config.ACCURACY_THRESHOLD,
-        system=Initialiser.EDGE,
+        system=Initialiser.VANILLA,
     )
     a = datetime.datetime.now()
-    initialiser.run_simulation(iterations=config.ITERATIONS)
+    # initialiser.run_simulation(iterations=config.ITERATIONS)
     b = datetime.datetime.now()

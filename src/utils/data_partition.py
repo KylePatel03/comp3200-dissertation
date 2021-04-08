@@ -9,6 +9,9 @@ AgentDataset = Dict[int, Dataset]
 Weights = List[np.array]
 GroupIndices = Dict[int,np.array]
 
+# Randomly selecting indices to sample from (seed for reproducibility)
+rng = np.random.default_rng(seed=1)
+
 """
     Construct a pandas DataFrame for the training dataset
 """
@@ -55,14 +58,14 @@ Tuple[List[Dataset], GroupIndices]:
         num_label = len(label_indices)
         if num_label >= num_samples_label:
             # Uniformly select num_samples_label indices to sample from
-            indices_label = np.random.choice(label_indices, num_samples_label, replace=False)
+            indices_label = rng.choice(label_indices, num_samples_label, replace=False)
         else:
             # Select all of the remaining data with this particular label
             indices_label = label_indices
         indices.append(indices_label)
     # Flattened list of indices to sample from
     indices = list(itertools.chain(*indices))
-    # indices = np.concatenate(indices, axis=None).astype('int')
+
     # Remove the sampled indices from group_indices => each client has unique training dataset
     group_indices: Dict[int, np.array] = {k: np.array(list(set(v) - set(indices))) for k, v in group_indices.items()}
 

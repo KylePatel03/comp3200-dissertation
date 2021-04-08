@@ -1,16 +1,6 @@
 from client_agent_edge import ClientAgentEdge
 from server_agent import *
 
-from datetime import datetime
-import multiprocessing
-from multiprocessing.pool import ThreadPool
-
-from client_agent import ClientAgent
-from directory import Directory
-from message import Message
-
-from agent import find_slowest_time
-
 
 class ServerAgentEdge(ServerAgent):
 
@@ -36,8 +26,8 @@ class ServerAgentEdge(ServerAgent):
                     body={}
                 )
                 args.append((client_instance, arg))
-                # Invoke ClientAgent.produce_weights() and store their returned message containing weight updates
-                messages = calling_pool.map(lambda x: x[0].produce_weights(message=x[1]), args)
+            # Invoke ClientAgent.produce_weights() and store their returned message containing weight updates
+            messages = calling_pool.map(lambda x: x[0].produce_weights(message=x[1]), args)
 
         # The time it takes for ALL clients to do model training and send their weights
         # This is identical to the simulated time for the LAST client to execute model training

@@ -85,7 +85,7 @@ class EdgeAgent(Agent):
         # Extract message contents
         features, labels = message.body['features'], message.body['labels']
 
-        # Perform local model DNN training
+        # Perform local model DNN training (using the federated weights at this round)
         initial_weights = self.__model.get_weights()
         self.__model.fit(x=features, y=labels, batch_size=self.batch_size, epochs=self.epochs, verbose=0)
 
@@ -102,7 +102,7 @@ class EdgeAgent(Agent):
         computation_time = end_time - start_time
         # The time taken to do local model training + send a message to the ServerAgent
         simulated_time += computation_time + directory.latency_dict[self.name][directory.main_server.name]
-        print('{}: Finished processing for {}. Simulated Time = {}'.format(self.name,message.sender,simulated_time))
+        print('{}: Finished processing for {}. Simulated Time = {}'.format(self.name, message.sender, simulated_time))
 
         # Forward the message containing the client's local weights to the main server
         return Message(sender_name=message.sender,
