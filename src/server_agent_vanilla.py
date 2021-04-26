@@ -3,7 +3,7 @@ from server_agent import *
 
 class ServerAgentVanilla(ServerAgent):
 
-    def fl_round(self, t: int, active_clients: Set[int]):
+    def fl_round(self, t, active_clients):
         server_logic_start = datetime.now()
         directory: Directory = Directory.get_instance()
 
@@ -30,7 +30,7 @@ class ServerAgentVanilla(ServerAgent):
 
         # The time it takes for all clients to perform training
         receive_weights_time = find_slowest_time(messages)
-        print('{}: Received all of the selected clients weights at time {}'.format(self.name, receive_weights_time))
+        #print('{}: Received all of the selected clients weights at time {}'.format(self.name, receive_weights_time))
 
         # The weights weighted by the number of training datapoints
         client_weights_nk = [map(lambda x: message.body['num_data'] * x, message.body['new_weights'])
@@ -39,7 +39,7 @@ class ServerAgentVanilla(ServerAgent):
         nk_sum = sum([message.body['num_data'] for message in messages])
 
         # Aggregate (average) each of the clients new_weights, weighted by the number of local training datapoints
-        averaged_weights: Weights = list(map(lambda x: sum(x) / nk_sum, zip(*client_weights_nk)))
+        averaged_weights = list(map(lambda x: sum(x) / nk_sum, zip(*client_weights_nk)))
 
         # Update the global model weights
         self.model.set_weights(averaged_weights)

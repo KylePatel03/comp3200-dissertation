@@ -17,10 +17,10 @@ def main():
     parser.add_argument('-batch_size', type=int, default=config.BATCH_SIZE)
 
     args_dict = vars(parser.parse_args())
-    type = args_dict['type']
+    t = args_dict['type']
     args_dict.pop('type')
 
-    if type == 'edge':
+    if t == 'edge':
         run_simulation(InitialiserEdge, **args_dict)
     else:
         run_simulation(InitialiserVanilla, **args_dict)

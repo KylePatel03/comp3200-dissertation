@@ -13,7 +13,7 @@ class ClientAgentEdge(ClientAgent):
         Client computes the forward pass on their training data and invoke the EdgeServer to produce the weight update
         :returns: Message to the EdgeServer to produce weight update (not necessarily from this Client)
     """
-    def produce_weights(self, message: Message) -> Message:
+    def produce_weights(self, message) -> Message:
         start_time = datetime.now()
         directory: Directory = Directory.get_instance()
         edge_server: EdgeAgent = EdgeAgent.get_instance()
@@ -44,5 +44,5 @@ class ClientAgentEdge(ClientAgent):
         edge_server.receive_message(msg)
         return edge_server.produce_weights()
 
-    def receive_weights(self, message: Message) -> Message:
+    def receive_weights(self, message) -> Message:
         pass

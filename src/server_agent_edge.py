@@ -32,7 +32,7 @@ class ServerAgentEdge(ServerAgent):
         # The time it takes for ALL clients to do model training and send their weights
         # This is identical to the simulated time for the LAST client to execute model training
         receive_weights_time = find_slowest_time(messages)
-        print('{}: Received all of the selected clients weights at time {}'.format(self.name, receive_weights_time))
+        #print('{}: Received all of the selected clients weights at time {}'.format(self.name, receive_weights_time))
 
         # The edge weights weighted by the number of training datapoints
         edge_weights_nk = [map(lambda x: message.body['num_data'] * x, message.body['new_weights'])
@@ -41,7 +41,7 @@ class ServerAgentEdge(ServerAgent):
         nk_sum = sum([message.body['num_data'] for message in messages])
 
         # Aggregate (average) each of the clients new_weights, weighted by the number of local training datapoints
-        averaged_edge_weights: Weights = list(map(lambda x: sum(x) / nk_sum, zip(*edge_weights_nk)))
+        averaged_edge_weights = list(map(lambda x: sum(x) / nk_sum, zip(*edge_weights_nk)))
         num_trainable_weights = len(self.model.trainable_weights)
 
         averaged_weights = self.model.get_weights()
@@ -58,7 +58,7 @@ class ServerAgentEdge(ServerAgent):
         simulated_time = receive_weights_time + server_logic_time + directory.latency_dict[self.name][
             directory.edge.name]
 
-        print('{}: Simulated time to send EdgeServer the federated weights = {}'.format(self.name, simulated_time))
+        #print('{}: Simulated time to send EdgeServer the federated weights = {}'.format(self.name, simulated_time))
 
         message = Message(
             sender_name=self.name,

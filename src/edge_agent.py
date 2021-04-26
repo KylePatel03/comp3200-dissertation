@@ -6,13 +6,8 @@ from agent import Agent
 from directory import Directory
 from message import Message
 from queue import PriorityQueue
-from typing import Dict, List
 
-Weights = List[np.array]
-
-"""
-    Singleton Class
-"""
+# EdgeServer
 class EdgeAgent(Agent):
     __edge_agent = None
 
@@ -30,7 +25,7 @@ class EdgeAgent(Agent):
             # Queue of messages to process (sorted by simulated times)
             self.__queue: PriorityQueue = PriorityQueue(num_active_clients)
             # Mapping of client name to mapping of round and local weights
-            self.client_local_weights: Dict[str, Dict[int, Weights]] = {}
+            self.client_local_weights = {}
             self.epochs: int = epochs
             self.batch_size: int = batch_size
             EdgeAgent.__edge_agent = self
@@ -41,14 +36,14 @@ class EdgeAgent(Agent):
     """
         Invoked by the ClientAgent to add their message to the queue
     """
-    def receive_message(self, message: Message):
+    def receive_message(self, message):
         self.__queue.put((message.simulated_time, message))
 
     """
      Invoked by the ServerAgent to receive federated weights and update the local model
      :return: Return a message back to the ServerAgent to acknowledge the weights
      """
-    def receive_weights(self, message: Message) -> Message:
+    def receive_weights(self, message):
 
         start_time = datetime.now()
         directory: Directory = Directory.get_instance()
@@ -74,13 +69,13 @@ class EdgeAgent(Agent):
     Process a message from the queue of a client (receives features and labels and performs their local model update)
     :return: Return a message to the ServerAgent containing the updated new_weights
     """
-    def produce_weights(self) -> Message:
+    def produce_weights(self):
         start_time = datetime.now()
         directory: Directory = Directory.get_instance()
 
         # Process the message from the client that is first received
         simulated_time, message = self.__queue.get()
-        print('{}: Processing message from {}. Simulated time = {}'.format(self.name,message.sender,message.simulated_time))
+        #print('{}: Processing message from {}. Simulated time = {}'.format(self.name,message.sender,message.simulated_time))
 
         # Extract message contents
         features, labels = message.body['features'], message.body['labels']
@@ -102,7 +97,7 @@ class EdgeAgent(Agent):
         computation_time = end_time - start_time
         # The time taken to do local model training + send a message to the ServerAgent
         simulated_time += computation_time + directory.latency_dict[self.name][directory.main_server.name]
-        print('{}: Finished processing for {}. Simulated Time = {}'.format(self.name, message.sender, simulated_time))
+        #print('{}: Finished processing for {}. Simulated Time = {}'.format(self.name, message.sender, simulated_time))
 
         # Forward the message containing the client's local weights to the main server
         return Message(sender_name=message.sender,

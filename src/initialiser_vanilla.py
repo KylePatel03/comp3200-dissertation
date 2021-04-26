@@ -3,7 +3,6 @@ from client_agent_vanilla import ClientAgentVanilla
 from server_agent_vanilla import ServerAgentVanilla
 
 
-
 class InitialiserVanilla(Initialiser):
 
     def __init__(self, num_clients, client_fraction, iterations, epochs, batch_size, accuracy_threshold):

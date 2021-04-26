@@ -42,7 +42,7 @@ class Initialiser(ABC):
         param client_names: Collection of clients indexed by id
         :param edge_simulation: Whether there is an EdgeServer
     """
-    def _init_latency_dict(self, client_names, edge_simulation) -> Dict[str, Dict[str, timedelta]]:
+    def _init_latency_dict(self, client_names, edge_simulation):
         latency_dict = {}
         main_server_name = self.main_server.name
         latency_dict.setdefault(main_server_name, {})
@@ -114,9 +114,6 @@ class Initialiser(ABC):
         model_copy = tf.keras.Sequential().from_config(model.get_config())
         # Copy the weights
         model_copy.set_weights(model.get_weights())
-        # model_copy.compile(optimizer=tf.keras.optimizers.Adam(),
-        #                    loss=tf.keras.losses.SparseCategoricalCrossentropy(),
-        #                    metrics=['accuracy'])
         return model_copy
 
 
@@ -135,7 +132,6 @@ class Initialiser(ABC):
             client_fraction=self.client_fraction,
             accuracy_threshold=self.accuracy_threshold
         )
-        # main_server.final_statistics()
 
     def _print_latency_dict(self, latency_dict, edge_simulation):
         main_server_name = self.main_server.name

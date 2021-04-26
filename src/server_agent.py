@@ -18,18 +18,14 @@ from agent import Agent, find_slowest_time
 
 sys.path.append('..')
 
-Dataset = Tuple[np.array, np.array]
-AgentDataset = Dict[int, Dataset]
-Weights = List[np.array]
-
 """ Server agent that averages new_weights and returns them to clients"""
 class ServerAgent(Agent, ABC):
 
     def __init__(self, agent_number, model, test_dataset):
         super(ServerAgent, self).__init__(agent_number=agent_number, agent_type='server_agent')
-        self.averaged_weights: Dict[int, Weights] = {}
+        self.averaged_weights = {}
         self.model: tf.keras.Model = model
-        self.test_dataset: AgentDataset = test_dataset
+        self.test_dataset = test_dataset
 
     """
         The logic to simulate the t(th) FL round
@@ -54,8 +50,8 @@ class ServerAgent(Agent, ABC):
         # The number of clients to sample per round
         num_active_clients = math.ceil(client_fraction * num_clients)
 
-        # Each row contains the ids of the clients to participate in a particular FL round
         rng = np.random.default_rng(seed=0)  # Seed for reproducibility
+        # Each row contains the ids of the clients to participate in a particular FL round
         active_clients = np.array([rng.choice(a=num_clients, size=num_active_clients, replace=False, p=p)
                                    for _ in range(num_iterations)])
 
@@ -80,22 +76,3 @@ class ServerAgent(Agent, ABC):
     def evaluate_model(self):
         x_test, y_test = self.test_dataset
         return self.model.evaluate(x_test, y_test, batch_size=2, verbose=0)
-
-    # def final_statistics(self):
-    #     """
-    #     USED FOR RESEARCH PURPOSES.
-    #     """
-    #     # for research purposes
-    #     client_accs = []
-    #     fed_acc = []
-    #     for client_name, client_instance in self.directory.clients.items():
-    #         fed_acc.append(list(client_instance.federated_accuracy.values()))
-    #         client_accs.append(list(client_instance.personal_accuracy.values()))
-    #
-    #     if config.CLIENT_DROPOUT:
-    #         print('Federated accuracies are {}'.format(dict(zip(self.directory.clients, fed_acc))))
-    #     else:
-    #         client_accs = list(np.mean(client_accs, axis=0))
-    #         fed_acc = list(np.mean(fed_acc, axis=0))
-    #         print('Personal accuracy on final iteration is {}'.format(client_accs))
-    #         print('Federated accuracy on final iteration is {}'.format(fed_acc))  # should all be the same if no dropout

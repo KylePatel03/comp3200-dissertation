@@ -19,7 +19,7 @@ class ClientAgentVanilla(ClientAgent):
     :param message: Message containing information necessary to produce new_weights for the iteration
     :return: Message containing new_weights to the server
     """
-    def produce_weights(self, message: Message) -> Message:
+    def produce_weights(self, message):
         start_time = datetime.now()
         simulated_time = message.simulated_time
         directory: Directory = Directory.get_instance()
@@ -46,14 +46,14 @@ class ClientAgentVanilla(ClientAgent):
                        simulated_time=simulated_time,
                        body={
                            'new_weights': weights,
-                           'num_data': y_train.shape[0],
+                           'num_data': y_train.size,
                        })
 
     """
         Invoked by the ServerAgent to receive/update local model with federated weights
         Client sends an acknowledgement back to the server
     """
-    def receive_weights(self, message: Message) -> Message:
+    def receive_weights(self, message):
         start_time = datetime.now()
         averaged_weights = message.body['averaged_weights']
         simulated_time = message.simulated_time
